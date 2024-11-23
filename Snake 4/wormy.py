@@ -1,11 +1,7 @@
-# Wormy (a Nibbles clone)
-# By Al Sweigart al@inventwithpython.com
-# http://inventwithpython.com/pygame
-# Released under a "Simplified BSD" license
-
-import random, pygame, sys
+import random, pygame, sys, json
 from pygame.locals import *
 
+# Configurações iniciais
 FPS = 15
 WINDOWWIDTH = 640
 WINDOWHEIGHT = 480
@@ -15,7 +11,7 @@ assert WINDOWHEIGHT % CELLSIZE == 0, "Window height must be a multiple of cell s
 CELLWIDTH = int(WINDOWWIDTH / CELLSIZE)
 CELLHEIGHT = int(WINDOWHEIGHT / CELLSIZE)
 
-#             R    G    B
+# Cores
 WHITE     = (255, 255, 255)
 BLACK     = (  0,   0,   0)
 RED       = (255,   0,   0)
@@ -24,42 +20,70 @@ DARKGREEN = (  0, 155,   0)
 DARKGRAY  = ( 40,  40,  40)
 BGCOLOR = BLACK
 
+# Direções
 UP = 'up'
 DOWN = 'down'
 LEFT = 'left'
 RIGHT = 'right'
 
-HEAD = 0 # syntactic sugar: index of the worm's head
+HEAD = 0  # índice da cabeça da cobra
 
+# Função para carregar o HighScore de um arquivo JSON
+def loadHighScore():
+    try:
+        with open('highscore.json', 'r') as file:
+            data = json.load(file)
+            return data.get('highscore', 0)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return 0
+
+# Função para salvar o HighScore em um arquivo JSON
+def saveHighScore(score):
+    with open('highscore.json', 'w') as file:
+        json.dump({'highscore': score}, file)
+
+# Função para exibir a pontuação e o High Score
+def drawScore(score, highscore):
+    # Renderizar a pontuação atual
+    scoreSurf = BASICFONT.render(f'Score: {score}', True, WHITE)
+    scoreRect = scoreSurf.get_rect()
+    scoreRect.topleft = (WINDOWWIDTH - 120, 10)
+    DISPLAYSURF.blit(scoreSurf, scoreRect)
+
+    # Renderizar o HighScore
+    highScoreSurf = BASICFONT.render(f'HighScore: {highscore}', True, WHITE)
+    highScoreRect = highScoreSurf.get_rect()
+    highScoreRect.topleft = (WINDOWWIDTH - 600, 10)
+    DISPLAYSURF.blit(highScoreSurf, highScoreRect)
+
+# Função principal
 def main():
     global FPSCLOCK, DISPLAYSURF, BASICFONT
-
     pygame.init()
     FPSCLOCK = pygame.time.Clock()
     DISPLAYSURF = pygame.display.set_mode((WINDOWWIDTH, WINDOWHEIGHT))
     BASICFONT = pygame.font.Font('freesansbold.ttf', 18)
     pygame.display.set_caption('Wormy')
 
+    highscore = loadHighScore()  # Carrega o High Score
     showStartScreen()
     while True:
-        runGame()
+        highscore = runGame(highscore)
         showGameOverScreen()
 
-
-def runGame():
-    # Set a random start point.
+def runGame(highscore):
+    # Inicializa a cobra e a maçã
     startx = random.randint(5, CELLWIDTH - 6)
     starty = random.randint(5, CELLHEIGHT - 6)
-    wormCoords = [{'x': startx,     'y': starty},
+    wormCoords = [{'x': startx, 'y': starty},
                   {'x': startx - 1, 'y': starty},
                   {'x': startx - 2, 'y': starty}]
     direction = RIGHT
-
-    # Start the apple in a random place.
     apple = getRandomLocation()
+    score = 0
 
-    while True: # main game loop
-        for event in pygame.event.get(): # event handling loop
+    while True:  # Loop principal do jogo
+        for event in pygame.event.get():
             if event.type == QUIT:
                 terminate()
             elif event.type == KEYDOWN:
@@ -74,21 +98,27 @@ def runGame():
                 elif event.key == K_ESCAPE:
                     terminate()
 
-        # check if the worm has hit itself or the edge
-        if wormCoords[HEAD]['x'] == -1 or wormCoords[HEAD]['x'] == CELLWIDTH or wormCoords[HEAD]['y'] == -1 or wormCoords[HEAD]['y'] == CELLHEIGHT:
-            return # game over
+        # Verificar colisões
+        if (wormCoords[HEAD]['x'] == -1 or
+            wormCoords[HEAD]['x'] == CELLWIDTH or
+            wormCoords[HEAD]['y'] == -1 or
+            wormCoords[HEAD]['y'] == CELLHEIGHT):
+            return highscore
         for wormBody in wormCoords[1:]:
             if wormBody['x'] == wormCoords[HEAD]['x'] and wormBody['y'] == wormCoords[HEAD]['y']:
-                return # game over
+                return highscore
 
-        # check if worm has eaten an apple
+        # Verificar se a cobra comeu a maçã
         if wormCoords[HEAD]['x'] == apple['x'] and wormCoords[HEAD]['y'] == apple['y']:
-            # don't remove worm's tail segment
-            apple = getRandomLocation() # set a new apple somewhere
+            apple = getRandomLocation()
+            score += 1
+            if score > highscore:
+                highscore = score
+                saveHighScore(highscore)
         else:
-            del wormCoords[-1] # remove worm's tail segment
+            del wormCoords[-1]
 
-        # move the worm by adding a segment in the direction it is moving
+        # Movimento da cobra
         if direction == UP:
             newHead = {'x': wormCoords[HEAD]['x'], 'y': wormCoords[HEAD]['y'] - 1}
         elif direction == DOWN:
@@ -98,32 +128,22 @@ def runGame():
         elif direction == RIGHT:
             newHead = {'x': wormCoords[HEAD]['x'] + 1, 'y': wormCoords[HEAD]['y']}
         wormCoords.insert(0, newHead)
+
+        # Atualização da tela
         DISPLAYSURF.fill(BGCOLOR)
         drawGrid()
         drawWorm(wormCoords)
         drawApple(apple)
-        drawScore(len(wormCoords) - 3)
+        drawScore(score, highscore)
         pygame.display.update()
         FPSCLOCK.tick(FPS)
 
-def drawPressKeyMsg():
-    pressKeySurf = BASICFONT.render('Press a key to play.', True, DARKGRAY)
-    pressKeyRect = pressKeySurf.get_rect()
-    pressKeyRect.topleft = (WINDOWWIDTH - 200, WINDOWHEIGHT - 30)
-    DISPLAYSURF.blit(pressKeySurf, pressKeyRect)
+def terminate():
+    pygame.quit()
+    sys.exit()
 
-
-def checkForKeyPress():
-    if len(pygame.event.get(QUIT)) > 0:
-        terminate()
-
-    keyUpEvents = pygame.event.get(KEYUP)
-    if len(keyUpEvents) == 0:
-        return None
-    if keyUpEvents[0].key == K_ESCAPE:
-        terminate()
-    return keyUpEvents[0].key
-
+def getRandomLocation():
+    return {'x': random.randint(0, CELLWIDTH - 1), 'y': random.randint(0, CELLHEIGHT - 1)}
 
 def showStartScreen():
     titleFont = pygame.font.Font('freesansbold.ttf', 100)
@@ -147,22 +167,29 @@ def showStartScreen():
         drawPressKeyMsg()
 
         if checkForKeyPress():
-            pygame.event.get() # clear event queue
+            pygame.event.get()  # Limpa a fila de eventos
             return
         pygame.display.update()
         FPSCLOCK.tick(FPS)
-        degrees1 += 3 # rotate by 3 degrees each frame
-        degrees2 += 7 # rotate by 7 degrees each frame
+        degrees1 += 3
+        degrees2 += 7
 
+def drawPressKeyMsg():
+    pressKeySurf = BASICFONT.render('Press a key to play.', True, DARKGRAY)
+    pressKeyRect = pressKeySurf.get_rect()
+    pressKeyRect.topleft = (WINDOWWIDTH - 200, WINDOWHEIGHT - 30)
+    DISPLAYSURF.blit(pressKeySurf, pressKeyRect)
 
-def terminate():
-    pygame.quit()
-    sys.exit()
+def checkForKeyPress():
+    if len(pygame.event.get(QUIT)) > 0:
+        terminate()
 
-
-def getRandomLocation():
-    return {'x': random.randint(0, CELLWIDTH - 1), 'y': random.randint(0, CELLHEIGHT - 1)}
-
+    keyUpEvents = pygame.event.get(KEYUP)
+    if len(keyUpEvents) == 0:
+        return None
+    if keyUpEvents[0].key == K_ESCAPE:
+        terminate()
+    return keyUpEvents[0].key
 
 def showGameOverScreen():
     gameOverFont = pygame.font.Font('freesansbold.ttf', 150)
@@ -178,43 +205,31 @@ def showGameOverScreen():
     drawPressKeyMsg()
     pygame.display.update()
     pygame.time.wait(500)
-    checkForKeyPress() # clear out any key presses in the event queue
+    checkForKeyPress()  # Limpa eventos na fila
 
     while True:
         if checkForKeyPress():
-            pygame.event.get() # clear event queue
+            pygame.event.get()
             return
 
-def drawScore(score):
-    scoreSurf = BASICFONT.render('Score: %s' % (score), True, WHITE)
-    scoreRect = scoreSurf.get_rect()
-    scoreRect.topleft = (WINDOWWIDTH - 120, 10)
-    DISPLAYSURF.blit(scoreSurf, scoreRect)
-
+def drawGrid():
+    for x in range(0, WINDOWWIDTH, CELLSIZE):  # Linhas Verticais
+        pygame.draw.line(DISPLAYSURF, DARKGRAY, (x, 0), (x, WINDOWHEIGHT))
+    for y in range(0, WINDOWHEIGHT, CELLSIZE):  # Linhas horizontais
+        pygame.draw.line(DISPLAYSURF, DARKGRAY, (0, y), (WINDOWWIDTH, y))
 
 def drawWorm(wormCoords):
     for coord in wormCoords:
         x = coord['x'] * CELLSIZE
         y = coord['y'] * CELLSIZE
         wormSegmentRect = pygame.Rect(x, y, CELLSIZE, CELLSIZE)
-        pygame.draw.rect(DISPLAYSURF, DARKGREEN, wormSegmentRect)
-        wormInnerSegmentRect = pygame.Rect(x + 4, y + 4, CELLSIZE - 8, CELLSIZE - 8)
-        pygame.draw.rect(DISPLAYSURF, GREEN, wormInnerSegmentRect)
+        pygame.draw.rect(DISPLAYSURF, GREEN, wormSegmentRect)
 
-
-def drawApple(coord):
-    x = coord['x'] * CELLSIZE
-    y = coord['y'] * CELLSIZE
+def drawApple(apple):
+    x = apple['x'] * CELLSIZE
+    y = apple['y'] * CELLSIZE
     appleRect = pygame.Rect(x, y, CELLSIZE, CELLSIZE)
     pygame.draw.rect(DISPLAYSURF, RED, appleRect)
-
-
-def drawGrid():
-    for x in range(0, WINDOWWIDTH, CELLSIZE): # draw vertical lines
-        pygame.draw.line(DISPLAYSURF, DARKGRAY, (x, 0), (x, WINDOWHEIGHT))
-    for y in range(0, WINDOWHEIGHT, CELLSIZE): # draw horizontal lines
-        pygame.draw.line(DISPLAYSURF, DARKGRAY, (0, y), (WINDOWWIDTH, y))
-
 
 if __name__ == '__main__':
     main()
